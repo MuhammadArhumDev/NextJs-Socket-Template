@@ -58,6 +58,7 @@ export default function RealtimeCounter() {
   const [userCount, setUserCount] = useState(0);
   const [totalEvents, setTotalEvents] = useState(0);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [locallyDeletedIds, setLocallyDeletedIds] = useState<Set<string>>(new Set());
   const [inputMessage, setInputMessage] = useState("");
   const [selectedFile, setSelectedFile] = useState<{ name: string; type: string; data: string } | null>(null);
   const [replyTo, setReplyTo] = useState<ChatMessage | null>(null);
@@ -69,6 +70,8 @@ export default function RealtimeCounter() {
   const longPressTimer = useRef<NodeJS.Timeout | null>(null);
   const touchStartX = useRef<number | null>(null);
   const [swipeOffset, setSwipeOffset] = useState<{ [id: string]: number }>({});
+
+  const visibleMessages = messages.filter(m => !locallyDeletedIds.has(m.id));
 
   useEffect(() => {
     const socket = socketIO();
@@ -251,7 +254,7 @@ export default function RealtimeCounter() {
     touchStartX.current = null;
   };
 
-  const handleAction = (type: 'reply' | 'edit' | 'delete') => {
+  const handleAction = (type: 'reply' | 'edit' | 'deleteLocal' | 'deleteAll') => {
     if (!contextMenu) return;
     const msg = messages.find(m => m.id === contextMenu.messageId);
     if (!msg || msg.isDeleted) return;
@@ -265,7 +268,9 @@ export default function RealtimeCounter() {
       setInputMessage(msg.text || "");
       setReplyTo(null);
       setTimeout(() => textareaRef.current?.focus(), 50);
-    } else if (type === 'delete') {
+    } else if (type === 'deleteLocal') {
+      setLocallyDeletedIds(prev => new Set(prev).add(msg.id));
+    } else if (type === 'deleteAll') {
       socketRef.current?.emit("chat:delete", { messageId: msg.id });
     }
     setContextMenu(null);
@@ -316,34 +321,50 @@ export default function RealtimeCounter() {
         <>
           <div className="fixed inset-0 z-[60]" onClick={() => setContextMenu(null)} />
           <div 
-            className="fixed z-[70] bg-white border-2 border-black shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] w-40 py-1"
+            className="fixed z-[70] bg-white border-2 border-black shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] w-52 py-1"
             style={{ 
               top: contextMenu.y + 150 > (typeof window !== 'undefined' ? window.innerHeight : 0) 
                 ? contextMenu.y - 140 
                 : contextMenu.y,
-              left: contextMenu.x + 160 > (typeof window !== 'undefined' ? window.innerWidth : 0)
-                ? contextMenu.x - 160
+              left: contextMenu.x + 208 > (typeof window !== 'undefined' ? window.innerWidth : 0)
+                ? contextMenu.x - 208
                 : contextMenu.x
             }}
           >
             <button 
-              className="w-full flex items-center gap-3 px-4 py-2.5 text-[0.8rem] font-bold uppercase hover:bg-gray-50 border-b border-gray-100 cursor-pointer" 
+              className="w-full flex items-center gap-3 px-4 py-3 text-[0.75rem] font-black uppercase tracking-tight hover:bg-gray-50 border-b border-gray-100 cursor-pointer text-black whitespace-nowrap" 
               onClick={() => handleAction('reply')}
             >
               <Send size={14} className="rotate-[270deg]" /> Reply
             </button>
             <button 
-              className="w-full flex items-center gap-3 px-4 py-2.5 text-[0.8rem] font-bold uppercase hover:bg-gray-50 border-b border-gray-100 cursor-pointer" 
-              onClick={() => handleAction('edit')}
+              className="w-full flex items-center gap-3 px-4 py-3 text-[0.75rem] font-black uppercase tracking-tight hover:bg-gray-50 border-b border-gray-100 cursor-pointer text-black whitespace-nowrap" 
+              onClick={() => handleAction('deleteLocal')}
             >
-              <FileText size={14} /> Edit
+              <X size={14} className="text-gray-400" /> Delete for me
             </button>
-            <button 
-              className="w-full flex items-center gap-3 px-4 py-2.5 text-[0.8rem] font-bold uppercase hover:bg-gray-50 text-red-600 cursor-pointer" 
-              onClick={() => handleAction('delete')}
-            >
-              <RotateCcw size={14} /> Delete
-            </button>
+            {(() => {
+              const msg = messages.find(m => m.id === contextMenu.messageId);
+              const isOwn = msg?.sender.includes(socketRef.current?.id?.substring(0, 4) || 'NOT_FOUND');
+              if (!isOwn) return null;
+              
+              return (
+                <>
+                  <button 
+                    className="w-full flex items-center gap-3 px-4 py-3 text-[0.75rem] font-black uppercase tracking-tight hover:bg-gray-50 border-b border-gray-100 cursor-pointer text-black whitespace-nowrap" 
+                    onClick={() => handleAction('edit')}
+                  >
+                    <FileText size={14} /> Edit
+                  </button>
+                  <button 
+                    className="w-full flex items-center gap-3 px-4 py-3 text-[0.75rem] font-black uppercase tracking-tight hover:bg-gray-50 text-red-600 cursor-pointer whitespace-nowrap" 
+                    onClick={() => handleAction('deleteAll')}
+                  >
+                    <RotateCcw size={14} /> Delete for all
+                  </button>
+                </>
+              );
+            })()}
           </div>
         </>
       )}
@@ -435,14 +456,14 @@ export default function RealtimeCounter() {
             className="h-[400px] overflow-y-auto p-4 flex flex-col gap-6 bg-gray-50 custom-scrollbar" 
             ref={chatBodyRef}
           >
-            {messages.length === 0 ? (
+            {visibleMessages.length === 0 ? (
               <p className="text-center text-gray-400 mt-36 text-[0.85rem] font-mono">
                 No messages yet. Start the conversation!
               </p>
             ) : (
-              messages.map((msg, index) => {
+              visibleMessages.map((msg, index) => {
                 const isOwn = msg.sender.includes(socketRef.current?.id?.substring(0, 4) || 'NOT_FOUND');
-                const prevMsg = messages[index - 1];
+                const prevMsg = visibleMessages[index - 1];
                 const isSameSender = prevMsg && prevMsg.sender === msg.sender;
                 
                 return (
@@ -466,51 +487,53 @@ export default function RealtimeCounter() {
                       </span>
                     )}
                     <div 
-                      className={`p-2.5 px-3.5 border text-[0.9rem] leading-relaxed relative break-words ${
+                      className={`py-2 px-3 border text-[0.85rem] leading-snug relative break-words shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] ${
                         isOwn 
                           ? 'bg-black text-white border-black' 
                           : 'bg-white text-black border-black'
                       } ${msg.isDeleted ? 'opacity-50 italic' : ''}`}
                     >
                       {msg.replyTo && !msg.isDeleted && (
-                        <div className={`mb-2 p-2 border-l-4 border-black bg-gray-100 text-[0.75rem] overflow-hidden`}>
-                          <span className="block font-bold mb-0.5 text-[0.6rem] uppercase">{msg.replyTo.sender}</span>
-                          <p className="truncate opacity-70">{msg.replyTo.text || 'File'}</p>
+                        <div className={`mb-2 p-2 border-l-2 text-[0.7rem] overflow-hidden ${
+                          isOwn ? 'bg-white/10 border-white/40 text-white/90' : 'bg-black/5 border-black/20 text-black/80'
+                        }`}>
+                          <span className="block font-bold mb-0.5 text-[0.55rem] uppercase tracking-wider">{msg.replyTo.sender}</span>
+                          <p className="truncate">{msg.replyTo.text || 'File Attachment'}</p>
                         </div>
                       )}
                       {msg.isDeleted ? (
                         <p className="flex items-center gap-2"><RotateCcw size={14} /> This message was deleted</p>
                       ) : (
-                        <>
+                        <div className="flex flex-col gap-1">
                           {msg.file && (
-                            <div className="mb-2">
+                            <div className="mb-1">
                               {msg.file.type.startsWith("image/") ? (
                                 <div className="relative group">
-                                  <img src={msg.file.data} alt="Upload" className="max-w-full border border-white/20" />
-                                  <div className="absolute top-2 left-2 bg-black/50 p-1">
-                                    <ImageIcon size={14} className="text-white" />
+                                  <img src={msg.file.data} alt="Upload" className="max-w-full border border-current/20" />
+                                  <div className="absolute top-1 left-1 bg-black/50 p-0.5">
+                                    <ImageIcon size={12} className="text-white" />
                                   </div>
                                 </div>
                               ) : (
-                                <a href={msg.file.data} download={msg.file.name} className="flex items-center gap-2 underline text-[0.8rem] bg-white/10 p-2 border border-current">
-                                  <FileText size={16} />
-                                  <span className="truncate">{msg.file.name}</span>
+                                <a href={msg.file.data} download={msg.file.name} className={`flex items-center gap-2 underline text-[0.75rem] p-1.5 border border-current/20 ${isOwn ? 'bg-white/5' : 'bg-black/5'}`}>
+                                  <FileText size={14} />
+                                  <span className="truncate max-w-[150px]">{msg.file.name}</span>
                                 </a>
                               )}
                             </div>
                           )}
-                          <p>{msg.text}</p>
-                        </>
+                          <p className="whitespace-pre-wrap">{msg.text}</p>
+                        </div>
                       )}
-                      <div className="flex justify-between items-center mt-2 gap-4">
-                        <div className="flex items-center gap-2">
-                          <span className="text-[0.6rem] opacity-70 font-mono">
+                      <div className="flex justify-between items-center mt-1.5 gap-3">
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-[0.55rem] opacity-60 font-mono">
                             {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                           </span>
-                          {msg.isEdited && !msg.isDeleted && <span className="text-[0.6rem] opacity-50 uppercase font-bold">Edited</span>}
+                          {msg.isEdited && !msg.isDeleted && <span className="text-[0.55rem] opacity-40 uppercase font-bold tracking-tighter">Edited</span>}
                         </div>
                         {isOwn && !msg.isDeleted && (
-                          <span className="text-[0.6rem] font-bold uppercase tracking-tighter opacity-80">
+                          <span className="text-[0.55rem] font-bold uppercase tracking-tighter opacity-60">
                             Seen by {msg.seenCount}
                           </span>
                         )}
