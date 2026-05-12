@@ -255,102 +255,138 @@ html, body {
   text-transform: capitalize;
 }
 
-/* ── Event log ──────────────────────────────────────────────── */
-.log-section {
+/* ── Chat section ────────────────────────────────────────── */
+.chat-section {
   max-width: 960px;
   width: 100%;
   margin: 0 auto;
-  padding: 40px 24px 64px;
+  padding: 0 24px 64px;
 }
 
-.log-header {
+.chat-container {
+  border: 2px solid var(--black);
   display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  margin-bottom: 16px;
-  padding-bottom: 12px;
-  border-bottom: 2px solid var(--black);
+  flex-direction: column;
+  background: var(--white);
 }
 
-.log-title {
+.chat-header {
+  padding: 12px 16px;
+  border-bottom: 2px solid var(--black);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.chat-title {
   font-size: 0.75rem;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.12em;
 }
 
-.log-count {
-  font-family: var(--font-mono);
-  font-size: 0.75rem;
-  color: var(--gray-600);
-}
-
-.log-body {
-  height: 320px;
+.chat-body {
+  height: 400px;
   overflow-y: auto;
-  border: 2px solid var(--black);
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
   background: var(--gray-50);
 }
 
-.log-body::-webkit-scrollbar {
+.chat-body::-webkit-scrollbar {
   width: 6px;
 }
 
-.log-body::-webkit-scrollbar-track {
+.chat-body::-webkit-scrollbar-track {
   background: var(--gray-100);
 }
 
-.log-body::-webkit-scrollbar-thumb {
+.chat-body::-webkit-scrollbar-thumb {
   background: var(--black);
 }
 
-.log-empty {
-  padding: 40px;
-  text-align: center;
-  font-size: 0.85rem;
-  color: var(--gray-400);
-  font-family: var(--font-mono);
-}
-
-.log-entry {
-  display: grid;
-  grid-template-columns: 90px 1fr;
-  gap: 16px;
-  padding: 10px 16px;
-  border-bottom: 1px solid var(--gray-200);
-  font-family: var(--font-mono);
-  font-size: 0.78rem;
+.message {
+  max-width: 80%;
+  padding: 10px 14px;
+  border: 1px solid var(--black);
+  font-size: 0.9rem;
   line-height: 1.4;
-  animation: slide-in 0.15s ease;
+  position: relative;
 }
 
-@keyframes slide-in {
-  from { opacity: 0; transform: translateY(-4px); }
-  to   { opacity: 1; transform: translateY(0); }
+.message-own {
+  align-self: flex-end;
+  background: var(--black);
+  color: var(--white);
 }
 
-.log-entry:last-child {
-  border-bottom: none;
-}
-
-.log-time {
-  color: var(--gray-400);
-  flex-shrink: 0;
-}
-
-.log-msg {
+.message-other {
+  align-self: flex-start;
+  background: var(--white);
   color: var(--black);
-  word-break: break-all;
 }
 
-.log-entry--event .log-msg {
-  color: var(--black);
+.message-info {
+  font-size: 0.7rem;
+  margin-bottom: 4px;
   font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  display: block;
 }
 
-.log-entry--error .log-time,
-.log-entry--error .log-msg {
-  color: #b91c1c;
+.message-time {
+  font-size: 0.65rem;
+  margin-top: 4px;
+  display: block;
+  opacity: 0.7;
+  font-family: var(--font-mono);
+}
+
+.chat-input-area {
+  padding: 12px;
+  border-top: 2px solid var(--black);
+  display: flex;
+  gap: 12px;
+}
+
+.chat-input {
+  flex: 1;
+  padding: 12px;
+  border: 2px solid var(--black);
+  font-family: var(--font-sans);
+  font-size: 0.9rem;
+  background: var(--white);
+  color: var(--black);
+  outline: none;
+}
+
+.chat-input:focus {
+  background: var(--gray-50);
+}
+
+.chat-send-btn {
+  padding: 0 24px;
+  background: var(--black);
+  color: var(--white);
+  border: none;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  font-size: 0.8rem;
+  cursor: pointer;
+  transition: opacity 0.2s;
+}
+
+.chat-send-btn:hover {
+  opacity: 0.8;
+}
+
+.chat-send-btn:disabled {
+  background: var(--gray-400);
+  cursor: not-allowed;
 }
 
 /* ── Responsive ─────────────────────────────────────────────── */
@@ -368,8 +404,11 @@ html, body {
     border-bottom: none;
   }
 
-  .log-entry {
-    grid-template-columns: 72px 1fr;
-    gap: 8px;
+  .chat-body {
+    height: 350px;
+  }
+
+  .message {
+    max-width: 90%;
   }
 }

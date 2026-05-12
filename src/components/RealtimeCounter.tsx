@@ -10,29 +10,22 @@ interface CounterEvent {
   timestamp: string;
 }
 
-interface LogEntry {
-  id: number;
-  message: string;
-  time: string;
-  type: "info" | "event" | "error";
+interface ChatMessage {
+  id: string;
+  text: string;
+  sender: string;
+  timestamp: string;
 }
 
 export default function RealtimeCounter() {
   const socketRef = useRef<Socket | null>(null);
   const [status, setStatus] = useState<ConnectionStatus>("connecting");
   const [count, setCount] = useState(0);
+  const [userCount, setUserCount] = useState(0);
   const [totalEvents, setTotalEvents] = useState(0);
-  const [logs, setLogs] = useState<LogEntry[]>([]);
-  const logIdRef = useRef(0);
-
-  const addLog = useCallback((message: string, type: LogEntry["type"] = "info") => {
-    const now = new Date();
-    const time = now.toLocaleTimeString("en-US", { hour12: false });
-    setLogs((prev) => [
-      { id: ++logIdRef.current, message, time, type },
-      ...prev.slice(0, 49), // keep last 50
-    ]);
-  }, []);
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [inputMessage, setInputMessage] = useState("");
+  const chatBodyRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const socket = socketIO();
@@ -40,43 +33,61 @@ export default function RealtimeCounter() {
 
     socket.on("connect", () => {
       setStatus("connected");
-      addLog(`Connected — socket ID: ${socket.id}`, "info");
     });
 
-    socket.on("disconnect", (reason) => {
+    socket.on("disconnect", () => {
       setStatus("disconnected");
-      addLog(`Disconnected: ${reason}`, "error");
     });
 
-    socket.on("connect_error", (err) => {
+    socket.on("connect_error", () => {
       setStatus("disconnected");
-      addLog(`Connection error: ${err.message}`, "error");
     });
 
     // Listen for counter increments pushed from server
     socket.on("counter:update", (data: CounterEvent) => {
       setCount(data.count);
       setTotalEvents((n) => n + 1);
-      addLog(`counter:update → count = ${data.count}  (${data.timestamp})`, "event");
     });
 
-    // Listen for notifications from cron/API
-    socket.on("notification", (data: { message: string }) => {
-      addLog(`notification → ${data.message}`, "event");
+    // Listen for user count updates
+    socket.on("users:count", (data: { count: number }) => {
+      setUserCount(data.count);
+    });
+
+    // Listen for chat messages
+    socket.on("chat:message", (message: ChatMessage) => {
+      setMessages((prev) => [...prev, message]);
     });
 
     return () => {
       socket.disconnect();
     };
-  }, [addLog]);
+  }, []);
 
-  // Emit an increment event from the client → server will broadcast to all
+  // Auto-scroll chat to bottom
+  useEffect(() => {
+    if (chatBodyRef.current) {
+      chatBodyRef.current.scrollTop = chatBodyRef.current.scrollHeight;
+    }
+  }, [messages]);
+
   const increment = () => {
     socketRef.current?.emit("counter:increment");
   };
 
   const reset = () => {
     socketRef.current?.emit("counter:reset");
+  };
+
+  const sendMessage = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!inputMessage.trim() || !socketRef.current) return;
+
+    socketRef.current.emit("chat:message", {
+      text: inputMessage,
+      sender: `User_${socketRef.current.id?.substring(0, 4)}`,
+    });
+    setInputMessage("");
   };
 
   const statusColor: Record<ConnectionStatus, string> = {
@@ -124,8 +135,8 @@ export default function RealtimeCounter() {
       {/* ── Stats row ───────────────────────────────────────── */}
       <section className="stats-row">
         <div className="stat-card">
-          <span className="stat-label">Current Count</span>
-          <span className="stat-value">{count}</span>
+          <span className="stat-label">Online Users</span>
+          <span className="stat-value">{userCount}</span>
         </div>
         <div className="stat-card">
           <span className="stat-label">Events Received</span>
@@ -139,23 +150,50 @@ export default function RealtimeCounter() {
         </div>
       </section>
 
-      {/* ── Event log ───────────────────────────────────────── */}
-      <section className="log-section">
-        <div className="log-header">
-          <span className="log-title">Event Log</span>
-          <span className="log-count">{logs.length} entries</span>
-        </div>
-        <div className="log-body" role="log" aria-label="Socket.IO event log">
-          {logs.length === 0 ? (
-            <p className="log-empty">Waiting for events…</p>
-          ) : (
-            logs.map((entry) => (
-              <div key={entry.id} className={`log-entry log-entry--${entry.type}`}>
-                <span className="log-time">{entry.time}</span>
-                <span className="log-msg">{entry.message}</span>
-              </div>
-            ))
-          )}
+      {/* ── Global Chat ───────────────────────────────────────── */}
+      <section className="chat-section">
+        <div className="chat-container">
+          <div className="chat-header">
+            <span className="chat-title">Global Chat</span>
+            <span className="chat-title">{messages.length} Messages</span>
+          </div>
+          <div className="chat-body" ref={chatBodyRef}>
+            {messages.length === 0 ? (
+              <p style={{ textAlign: 'center', color: '#999', marginTop: '140px', fontSize: '0.85rem' }}>
+                No messages yet. Start the conversation!
+              </p>
+            ) : (
+              messages.map((msg) => (
+                <div 
+                  key={msg.id} 
+                  className={`message ${msg.sender.includes(socketRef.current?.id?.substring(0, 4) || 'NOT_FOUND') ? 'message-own' : 'message-other'}`}
+                >
+                  <span className="message-info">{msg.sender}</span>
+                  <p>{msg.text}</p>
+                  <span className="message-time">
+                    {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                  </span>
+                </div>
+              ))
+            )}
+          </div>
+          <form className="chat-input-area" onSubmit={sendMessage}>
+            <input 
+              type="text" 
+              className="chat-input" 
+              placeholder="Type your message..."
+              value={inputMessage}
+              onChange={(e) => setInputMessage(e.target.value)}
+              disabled={status !== "connected"}
+            />
+            <button 
+              type="submit" 
+              className="chat-send-btn"
+              disabled={!inputMessage.trim() || status !== "connected"}
+            >
+              Send
+            </button>
+          </form>
         </div>
       </section>
     </main>

@@ -48,8 +48,15 @@ app.prepare().then(() => {
     });
   };
 
+  const broadcastUserCount = () => {
+    io.emit("users:count", {
+      count: io.engine.clientsCount,
+    });
+  };
+
   io.on("connection", (socket) => {
     console.log("Client connected:", socket.id);
+    broadcastUserCount();
 
     // Send current count immediately on connect
     socket.emit("counter:update", {
@@ -67,8 +74,17 @@ app.prepare().then(() => {
       broadcastCount();
     });
 
+    socket.on("chat:message", (data: { text: string; sender: string }) => {
+      io.emit("chat:message", {
+        ...data,
+        id: Date.now().toString() + Math.random().toString(36).substr(2, 9),
+        timestamp: new Date().toISOString(),
+      });
+    });
+
     socket.on("disconnect", () => {
       console.log("Client disconnected:", socket.id);
+      broadcastUserCount();
     });
   });
 
