@@ -2,8 +2,22 @@
 
 import { useEffect, useRef, useState } from "react";
 import { io as socketIO, Socket } from "socket.io-client";
+import { 
+  Plus, 
+  RotateCcw, 
+  Users, 
+  Activity, 
+  Globe, 
+  Send, 
+  Paperclip, 
+  X, 
+  FileText,
+  ImageIcon,
+  ShieldCheck
+} from "lucide-react";
 
 type ConnectionStatus = "connecting" | "connected" | "disconnected";
+
 
 interface CounterEvent {
   count: number;
@@ -12,9 +26,15 @@ interface CounterEvent {
 
 interface ChatMessage {
   id: string;
-  text: string;
+  text?: string;
   sender: string;
   timestamp: string;
+  seenCount?: number;
+  file?: {
+    name: string;
+    type: string;
+    data: string; // Base64
+  };
 }
 
 export default function RealtimeCounter() {
@@ -25,7 +45,9 @@ export default function RealtimeCounter() {
   const [totalEvents, setTotalEvents] = useState(0);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [inputMessage, setInputMessage] = useState("");
+  const [selectedFile, setSelectedFile] = useState<{ name: string; type: string; data: string } | null>(null);
   const chatBodyRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     const socket = socketIO();
@@ -53,7 +75,23 @@ export default function RealtimeCounter() {
     });
 
     socket.on("chat:message", (message: ChatMessage) => {
-      setMessages((prev) => [...prev, message]);
+      setMessages((prev) => [...prev, { ...message, seenCount: 0 }]);
+      
+      // Emit seen event if it's not our own message
+      const ownId = socketRef.current?.id?.substring(0, 4);
+      if (!message.sender.includes(ownId || 'NOT_FOUND')) {
+        socketRef.current?.emit("chat:seen", { messageId: message.id });
+      }
+    });
+
+    socket.on("chat:seen:update", (data: { messageId: string }) => {
+      setMessages((prev) => 
+        prev.map((msg) => 
+          msg.id === data.messageId 
+            ? { ...msg, seenCount: (msg.seenCount || 0) + 1 } 
+            : msg
+        )
+      );
     });
 
     return () => {
@@ -75,15 +113,44 @@ export default function RealtimeCounter() {
     socketRef.current?.emit("counter:reset");
   };
 
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const bannedExtensions = [".apk", ".exe", ".msi", ".bat", ".cmd", ".sh", ".com", ".bin"];
+    const fileExtension = file.name.substring(file.name.lastIndexOf(".")).toLowerCase();
+
+    if (bannedExtensions.includes(fileExtension)) {
+      alert("Executable files (.apk, .exe, etc.) are not allowed.");
+      if (fileInputRef.current) fileInputRef.current.value = "";
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const base64Data = event.target?.result as string;
+      setSelectedFile({
+        name: file.name,
+        type: file.type,
+        data: base64Data,
+      });
+    };
+    reader.readAsDataURL(file);
+  };
+
   const sendMessage = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!inputMessage.trim() || !socketRef.current) return;
+    if ((!inputMessage.trim() && !selectedFile) || !socketRef.current) return;
 
     socketRef.current.emit("chat:message", {
       text: inputMessage,
+      file: selectedFile || undefined,
       sender: `User_${socketRef.current.id?.substring(0, 4)}`,
     });
+    
     setInputMessage("");
+    setSelectedFile(null);
+    if (fileInputRef.current) fileInputRef.current.value = "";
   };
 
   const statusColor: Record<ConnectionStatus, string> = {
@@ -98,7 +165,7 @@ export default function RealtimeCounter() {
       <header className="sticky top-0 z-50 bg-white border-b-2 border-black">
         <div className="max-w-[960px] mx-auto px-6 h-[60px] flex items-center justify-between">
           <h1 className="text-xl font-black uppercase tracking-tighter">
-            Socket<span className="text-black">IO</span>
+            r<span className="text-black">Chat</span>
           </h1>
           <div className="flex items-center gap-2 px-3.5 py-1.5 border-2 border-black text-[0.8rem] font-bold uppercase tracking-widest">
             <span className={`w-2 h-2 animate-pulse ${statusColor[status]}`} />
@@ -121,15 +188,17 @@ export default function RealtimeCounter() {
 
         <div className="flex gap-3 flex-wrap justify-center">
           <button 
-            className="px-9 py-3.5 bg-black text-white text-[0.9rem] font-bold uppercase tracking-widest border-2 border-black hover:bg-gray-800 transition-colors active:scale-95"
+            className="flex items-center gap-2 px-9 py-3.5 bg-black text-white text-[0.9rem] font-bold uppercase tracking-widest border-2 border-black hover:bg-gray-800 transition-colors active:scale-95 cursor-pointer"
             onClick={increment}
           >
-            + Increment
+            <Plus size={18} />
+            Increment
           </button>
           <button 
-            className="px-9 py-3.5 bg-white text-black text-[0.9rem] font-bold uppercase tracking-widest border-2 border-black hover:bg-gray-100 transition-colors active:scale-95"
+            className="flex items-center gap-2 px-9 py-3.5 bg-white text-black text-[0.9rem] font-bold uppercase tracking-widest border-2 border-black hover:bg-gray-100 transition-colors active:scale-95 cursor-pointer"
             onClick={reset}
           >
+            <RotateCcw size={18} />
             Reset
           </button>
         </div>
@@ -138,15 +207,24 @@ export default function RealtimeCounter() {
       {/* ── Stats row ───────────────────────────────────────── */}
       <section className="grid grid-cols-1 sm:grid-cols-3 border-y-2 border-black w-full">
         <div className="flex flex-col items-center justify-center py-8 px-4 gap-2 border-b-2 sm:border-b-0 sm:border-r-2 border-black">
-          <span className="text-[0.7rem] font-semibold uppercase tracking-widest text-gray-500">Online Users</span>
+          <div className="flex items-center gap-2 text-gray-500 uppercase tracking-widest text-[0.7rem] font-semibold">
+            <Users size={14} />
+            <span>Online Users</span>
+          </div>
           <span className="font-mono text-2xl font-bold tracking-tight">{userCount}</span>
         </div>
         <div className="flex flex-col items-center justify-center py-8 px-4 gap-2 border-b-2 sm:border-b-0 sm:border-r-2 border-black">
-          <span className="text-[0.7rem] font-semibold uppercase tracking-widest text-gray-500">Events Received</span>
+          <div className="flex items-center gap-2 text-gray-500 uppercase tracking-widest text-[0.7rem] font-semibold">
+            <Activity size={14} />
+            <span>Events Received</span>
+          </div>
           <span className="font-mono text-2xl font-bold tracking-tight">{totalEvents}</span>
         </div>
         <div className="flex flex-col items-center justify-center py-8 px-4 gap-2">
-          <span className="text-[0.7rem] font-semibold uppercase tracking-widest text-gray-500">Connection</span>
+          <div className="flex items-center gap-2 text-gray-500 uppercase tracking-widest text-[0.7rem] font-semibold">
+            <Globe size={14} />
+            <span>Connection</span>
+          </div>
           <span className={`font-mono text-2xl font-bold tracking-tight capitalize ${status === 'connected' ? 'text-green-600' : 'text-amber-600'}`}>
             {status}
           </span>
@@ -161,7 +239,7 @@ export default function RealtimeCounter() {
             <span className="text-[0.75rem] font-bold uppercase tracking-widest">{messages.length} Messages</span>
           </div>
           <div 
-            className="h-[400px] overflow-y-auto p-4 flex flex-col gap-3 bg-gray-50 custom-scrollbar" 
+            className="h-[400px] overflow-y-auto p-4 flex flex-col gap-6 bg-gray-50 custom-scrollbar" 
             ref={chatBodyRef}
           >
             {messages.length === 0 ? (
@@ -174,25 +252,86 @@ export default function RealtimeCounter() {
                 return (
                   <div 
                     key={msg.id} 
-                    className={`max-w-[85%] p-2.5 px-3.5 border text-[0.9rem] leading-relaxed relative ${
-                      isOwn 
-                        ? 'self-end bg-black text-white border-black' 
-                        : 'self-start bg-white text-black border-black'
-                    }`}
+                    className={`flex flex-col gap-1 max-w-[80%] ${isOwn ? 'self-end' : 'self-start'}`}
                   >
-                    <span className="text-[0.7rem] font-semibold uppercase tracking-wider mb-1 block">
+                    <span className="text-[0.55rem] font-mono font-bold uppercase tracking-widest text-gray-400 px-1">
                       {msg.sender}
                     </span>
-                    <p>{msg.text}</p>
-                    <span className="text-[0.65rem] mt-1 block opacity-70 font-mono">
-                      {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                    </span>
+                    <div 
+                      className={`p-2.5 px-3.5 border text-[0.9rem] leading-relaxed relative break-words ${
+                        isOwn 
+                          ? 'bg-black text-white border-black' 
+                          : 'bg-white text-black border-black'
+                      }`}
+                    >
+                      {msg.file && (
+                        <div className="mb-2">
+                          {msg.file.type.startsWith("image/") ? (
+                            <div className="relative group">
+                              <img src={msg.file.data} alt="Upload" className="max-w-full border border-white/20" />
+                              <div className="absolute top-2 left-2 bg-black/50 p-1">
+                                <ImageIcon size={14} className="text-white" />
+                              </div>
+                            </div>
+                          ) : (
+                            <a href={msg.file.data} download={msg.file.name} className="flex items-center gap-2 underline text-[0.8rem] bg-white/10 p-2 border border-current">
+                              <FileText size={16} />
+                              <span className="truncate">{msg.file.name}</span>
+                            </a>
+                          )}
+                        </div>
+                      )}
+                      <p>{msg.text}</p>
+                      <div className="flex justify-between items-center mt-2 gap-4">
+                        <span className="text-[0.6rem] opacity-70 font-mono">
+                          {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        </span>
+                        {isOwn && (
+                          <span className="text-[0.6rem] font-bold uppercase tracking-tighter opacity-80">
+                            Seen by {msg.seenCount}
+                          </span>
+                        )}
+                      </div>
+                    </div>
                   </div>
                 );
               })
             )}
           </div>
+          {selectedFile && (
+            <div className="px-4 py-2 border-t-2 border-black bg-gray-100 flex items-center justify-between">
+              <div className="flex items-center gap-2 overflow-hidden">
+                <Paperclip size={14} className="shrink-0" />
+                <span className="text-[0.7rem] font-mono truncate">
+                  {selectedFile.name}
+                </span>
+              </div>
+              <button 
+                className="p-1 hover:bg-gray-200 cursor-pointer"
+                onClick={() => {
+                  setSelectedFile(null);
+                  if (fileInputRef.current) fileInputRef.current.value = "";
+                }}
+              >
+                <X size={14} className="text-red-600" />
+              </button>
+            </div>
+          )}
           <form className="p-3 border-t-2 border-black flex gap-3" onSubmit={sendMessage}>
+            <input 
+              type="file"
+              className="hidden"
+              ref={fileInputRef}
+              onChange={handleFileChange}
+            />
+            <button 
+              type="button"
+              className="w-12 h-12 flex items-center justify-center bg-white text-black border-2 border-black hover:bg-gray-100 transition-colors cursor-pointer shrink-0"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={status !== "connected"}
+            >
+              <Paperclip size={20} />
+            </button>
             <input 
               type="text" 
               className="flex-1 p-3 border-2 border-black font-sans text-[0.9rem] bg-white text-black outline-none focus:bg-gray-50" 
@@ -203,10 +342,10 @@ export default function RealtimeCounter() {
             />
             <button 
               type="submit" 
-              className="px-6 bg-black text-white font-bold uppercase tracking-widest text-[0.8rem] hover:opacity-80 transition-opacity disabled:bg-gray-400 disabled:cursor-not-allowed"
-              disabled={!inputMessage.trim() || status !== "connected"}
+              className="w-12 h-12 flex items-center justify-center bg-black text-white border-2 border-black hover:bg-gray-800 transition-opacity disabled:bg-gray-400 disabled:cursor-not-allowed cursor-pointer shrink-0"
+              disabled={!inputMessage.trim() && !selectedFile || status !== "connected"}
             >
-              Send
+              <Send size={20} />
             </button>
           </form>
         </div>

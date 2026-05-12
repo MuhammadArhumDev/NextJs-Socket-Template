@@ -79,6 +79,15 @@ app.prepare().then(() => {
         ...data,
         id: Date.now().toString() + Math.random().toString(36).substr(2, 9),
         timestamp: new Date().toISOString(),
+        seenCount: 0,
+      });
+    });
+
+    socket.on("chat:seen", (data: { messageId: string }) => {
+      // In a real app, we would track unique users. Here we just broadcast an increment or specific count.
+      // Since we don't persist messages on server, we broadcast the 'seen' event to everyone.
+      io.emit("chat:seen:update", {
+        messageId: data.messageId,
       });
     });
 

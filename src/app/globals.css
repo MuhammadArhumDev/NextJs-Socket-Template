@@ -34,6 +34,10 @@
   html, body {
     @apply h-full bg-white text-black antialiased font-sans;
   }
+  
+  button {
+    @apply cursor-pointer;
+  }
 }
 
 /* Custom Scrollbar Utilities */
