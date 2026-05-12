@@ -65,7 +65,10 @@ export default function RealtimeCounter() {
   const [contextMenu, setContextMenu] = useState<ContextMenuState>(null);
   const chatBodyRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
   const longPressTimer = useRef<NodeJS.Timeout | null>(null);
+  const touchStartX = useRef<number | null>(null);
+  const [swipeOffset, setSwipeOffset] = useState<{ [id: string]: number }>({});
 
   useEffect(() => {
     const socket = socketIO();
@@ -174,6 +177,7 @@ export default function RealtimeCounter() {
         type: file.type,
         data: base64Data,
       });
+      textareaRef.current?.focus();
     };
     reader.readAsDataURL(file);
   };
@@ -202,6 +206,7 @@ export default function RealtimeCounter() {
 
   const handleTouchStart = (e: React.TouchEvent, messageId: string) => {
     const touch = e.touches[0];
+    touchStartX.current = touch.clientX;
     const x = touch.clientX;
     const y = touch.clientY;
     longPressTimer.current = setTimeout(() => {
@@ -214,10 +219,36 @@ export default function RealtimeCounter() {
     }, 500);
   };
 
-  const handleTouchEnd = () => {
+  const handleTouchMove = (e: React.TouchEvent, messageId: string) => {
+    if (touchStartX.current === null) return;
+    const touch = e.touches[0];
+    const diff = touch.clientX - touchStartX.current;
+    
+    // Only allow swiping right
+    if (diff > 0 && diff < 100) {
+      setSwipeOffset(prev => ({ ...prev, [messageId]: diff }));
+      if (diff > 20 && longPressTimer.current) {
+        clearTimeout(longPressTimer.current);
+      }
+    }
+  };
+
+  const handleTouchEnd = (messageId: string) => {
     if (longPressTimer.current) {
       clearTimeout(longPressTimer.current);
     }
+    
+    if (swipeOffset[messageId] > 60) {
+      const msg = messages.find(m => m.id === messageId);
+      if (msg && !msg.isDeleted) {
+        setReplyTo(msg);
+        setEditingMsg(null);
+        setTimeout(() => textareaRef.current?.focus(), 50);
+      }
+    }
+    
+    setSwipeOffset(prev => ({ ...prev, [messageId]: 0 }));
+    touchStartX.current = null;
   };
 
   const handleAction = (type: 'reply' | 'edit' | 'delete') => {
@@ -228,10 +259,12 @@ export default function RealtimeCounter() {
     if (type === 'reply') {
       setReplyTo(msg);
       setEditingMsg(null);
+      setTimeout(() => textareaRef.current?.focus(), 50);
     } else if (type === 'edit') {
       setEditingMsg(msg);
       setInputMessage(msg.text || "");
       setReplyTo(null);
+      setTimeout(() => textareaRef.current?.focus(), 50);
     } else if (type === 'delete') {
       socketRef.current?.emit("chat:delete", { messageId: msg.id });
     }
@@ -415,11 +448,18 @@ export default function RealtimeCounter() {
                 return (
                   <div 
                     key={msg.id} 
-                    className={`flex flex-col gap-1 max-w-[80%] ${isOwn ? 'self-end' : 'self-start'} ${isSameSender ? '-mt-4' : 'mt-0'}`}
+                    className={`flex flex-col gap-1 max-w-[80%] relative transition-transform duration-75 ${isOwn ? 'self-end' : 'self-start'} ${isSameSender ? '-mt-4' : 'mt-0'}`}
                     onContextMenu={(e) => handleContextMenu(e, msg.id)}
                     onTouchStart={(e) => handleTouchStart(e, msg.id)}
-                    onTouchEnd={handleTouchEnd}
+                    onTouchMove={(e) => handleTouchMove(e, msg.id)}
+                    onTouchEnd={() => handleTouchEnd(msg.id)}
+                    style={{ transform: `translateX(${swipeOffset[msg.id] || 0}px)` }}
                   >
+                    {swipeOffset[msg.id] > 20 && (
+                      <div className="absolute left-[-40px] top-1/2 -translate-y-1/2 opacity-50">
+                        <Send size={20} className="rotate-[270deg]" />
+                      </div>
+                    )}
                     {!isSameSender && (
                       <span className="text-[0.55rem] font-mono font-bold uppercase tracking-widest text-gray-400 px-1 mt-1">
                         {msg.sender}
@@ -544,6 +584,7 @@ export default function RealtimeCounter() {
               <Paperclip size={20} />
             </button>
             <textarea 
+              ref={textareaRef}
               className="flex-1 px-4 py-3 border-2 border-black font-sans text-[0.9rem] bg-white text-black outline-none focus:bg-gray-50 resize-none min-h-[48px] max-h-[120px] overflow-hidden custom-scrollbar" 
               placeholder="Type your message..."
               value={inputMessage}
