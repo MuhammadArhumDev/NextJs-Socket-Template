@@ -1,26 +1,50 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
+/* ── Local fonts (Defined in CSS for @theme use) ───────────── */
+@font-face {
+  font-family: "Sans";
+  src: url("/fonts/Sans-Regular.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+@font-face {
+  font-family: "Sans";
+  src: url("/fonts/Sans-Medium.woff2") format("woff2");
+  font-weight: 500 700;
+  font-style: normal;
+  font-display: swap;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+@theme {
+  --font-sans: "Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-jetbrains-mono), ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  
+  --color-black: #000000;
+  --color-white: #ffffff;
+}
+
+/* ── Global Reset ───────────────────────────────────────────── */
+@layer base {
+  *, *::before, *::after {
+    border-radius: 0 !important;
+  }
+  
+  html, body {
+    @apply h-full bg-white text-black antialiased font-sans;
   }
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+/* Custom Scrollbar Utilities */
+@utility custom-scrollbar {
+  &::-webkit-scrollbar {
+    width: 6px;
+  }
+  &::-webkit-scrollbar-track {
+    @apply bg-gray-100;
+  }
+  &::-webkit-scrollbar-thumb {
+    @apply bg-black;
+  }
 }
