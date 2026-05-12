@@ -165,6 +165,10 @@ export default function RealtimeCounter() {
     setInputMessage("");
     setSelectedFile(null);
     if (fileInputRef.current) fileInputRef.current.value = "";
+
+    // Reset textarea height
+    const textarea = (e.target as HTMLFormElement).querySelector('textarea');
+    if (textarea) textarea.style.height = '48px';
   };
 
   const statusColor: Record<ConnectionStatus, string> = {
