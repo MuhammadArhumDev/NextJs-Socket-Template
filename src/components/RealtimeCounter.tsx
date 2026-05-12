@@ -115,8 +115,10 @@ export default function RealtimeCounter() {
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (!file) return;
+    if (file) processFile(file);
+  };
 
+  const processFile = (file: File) => {
     const bannedExtensions = [".apk", ".exe", ".msi", ".bat", ".cmd", ".sh", ".com", ".bin"];
     const fileExtension = file.name.substring(file.name.lastIndexOf(".")).toLowerCase();
 
@@ -136,6 +138,18 @@ export default function RealtimeCounter() {
       });
     };
     reader.readAsDataURL(file);
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const file = e.dataTransfer.files?.[0];
+    if (file) processFile(file);
   };
 
   const sendMessage = (e: React.FormEvent) => {
@@ -233,9 +247,15 @@ export default function RealtimeCounter() {
 
       {/* ── Global Chat ───────────────────────────────────────── */}
       <section className="max-w-[960px] w-full mx-auto px-6 py-12 md:py-16">
-        <div className="border-2 border-black flex flex-col bg-white">
-          <div className="p-3 px-4 border-b-2 border-black flex justify-between items-center">
-            <span className="text-[0.75rem] font-bold uppercase tracking-widest">Global Chat</span>
+        <div 
+          className="border-2 border-black flex flex-col bg-white transition-colors duration-200 group/chat"
+          onDragOver={handleDragOver}
+          onDrop={handleDrop}
+        >
+          <div className="p-3 px-4 border-b-2 border-black flex justify-between items-center bg-white group-drag-over/chat:bg-gray-100 transition-colors">
+            <div className="flex items-center gap-2">
+              <span className="text-[0.75rem] font-bold uppercase tracking-widest">Global Chat</span>
+            </div>
             <span className="text-[0.75rem] font-bold uppercase tracking-widest">{messages.length} Messages</span>
           </div>
           <div 
@@ -247,16 +267,21 @@ export default function RealtimeCounter() {
                 No messages yet. Start the conversation!
               </p>
             ) : (
-              messages.map((msg) => {
+              messages.map((msg, index) => {
                 const isOwn = msg.sender.includes(socketRef.current?.id?.substring(0, 4) || 'NOT_FOUND');
+                const prevMsg = messages[index - 1];
+                const isSameSender = prevMsg && prevMsg.sender === msg.sender;
+                
                 return (
                   <div 
                     key={msg.id} 
-                    className={`flex flex-col gap-1 max-w-[80%] ${isOwn ? 'self-end' : 'self-start'}`}
+                    className={`flex flex-col gap-1 max-w-[80%] ${isOwn ? 'self-end' : 'self-start'} ${isSameSender ? '-mt-4' : 'mt-0'}`}
                   >
-                    <span className="text-[0.55rem] font-mono font-bold uppercase tracking-widest text-gray-400 px-1">
-                      {msg.sender}
-                    </span>
+                    {!isSameSender && (
+                      <span className="text-[0.55rem] font-mono font-bold uppercase tracking-widest text-gray-400 px-1 mt-1">
+                        {msg.sender}
+                      </span>
+                    )}
                     <div 
                       className={`p-2.5 px-3.5 border text-[0.9rem] leading-relaxed relative break-words ${
                         isOwn 
@@ -317,7 +342,10 @@ export default function RealtimeCounter() {
               </button>
             </div>
           )}
-          <form className="p-3 border-t-2 border-black flex gap-3" onSubmit={sendMessage}>
+          <form 
+            className="p-3 border-t-2 border-black flex items-end gap-3 min-h-[72px]" 
+            onSubmit={sendMessage}
+          >
             <input 
               type="file"
               className="hidden"
@@ -332,12 +360,23 @@ export default function RealtimeCounter() {
             >
               <Paperclip size={20} />
             </button>
-            <input 
-              type="text" 
-              className="flex-1 p-3 border-2 border-black font-sans text-[0.9rem] bg-white text-black outline-none focus:bg-gray-50" 
+            <textarea 
+              className="flex-1 px-4 py-3 border-2 border-black font-sans text-[0.9rem] bg-white text-black outline-none focus:bg-gray-50 resize-none min-h-[48px] max-h-[120px] custom-scrollbar" 
               placeholder="Type your message..."
               value={inputMessage}
-              onChange={(e) => setInputMessage(e.target.value)}
+              onChange={(e) => {
+                setInputMessage(e.target.value);
+                // Auto-expand logic
+                e.target.style.height = 'inherit';
+                e.target.style.height = `${Math.min(e.target.scrollHeight, 120)}px`;
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                  e.preventDefault();
+                  sendMessage(e as any);
+                }
+              }}
+              rows={1}
               disabled={status !== "connected"}
             />
             <button 
