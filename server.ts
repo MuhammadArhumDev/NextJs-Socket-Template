@@ -91,6 +91,14 @@ app.prepare().then(() => {
       });
     });
 
+    socket.on("chat:edit", (data: { messageId: string; newText: string }) => {
+      io.emit("chat:edit:update", data);
+    });
+
+    socket.on("chat:delete", (data: { messageId: string }) => {
+      io.emit("chat:delete:update", data);
+    });
+
     socket.on("disconnect", () => {
       console.log("Client disconnected:", socket.id);
       broadcastUserCount();

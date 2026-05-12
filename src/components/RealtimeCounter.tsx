@@ -35,7 +35,21 @@ interface ChatMessage {
     type: string;
     data: string; // Base64
   };
+  replyTo?: {
+    id: string;
+    text?: string;
+    sender: string;
+  };
+  isEdited?: boolean;
+  isDeleted?: boolean;
 }
+
+type ContextMenuState = {
+  visible: boolean;
+  x: number;
+  y: number;
+  messageId: string;
+} | null;
 
 export default function RealtimeCounter() {
   const socketRef = useRef<Socket | null>(null);
@@ -46,8 +60,12 @@ export default function RealtimeCounter() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [inputMessage, setInputMessage] = useState("");
   const [selectedFile, setSelectedFile] = useState<{ name: string; type: string; data: string } | null>(null);
+  const [replyTo, setReplyTo] = useState<ChatMessage | null>(null);
+  const [editingMsg, setEditingMsg] = useState<ChatMessage | null>(null);
+  const [contextMenu, setContextMenu] = useState<ContextMenuState>(null);
   const chatBodyRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const longPressTimer = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
     const socket = socketIO();
@@ -89,6 +107,26 @@ export default function RealtimeCounter() {
         prev.map((msg) => 
           msg.id === data.messageId 
             ? { ...msg, seenCount: (msg.seenCount || 0) + 1 } 
+            : msg
+        )
+      );
+    });
+
+    socket.on("chat:edit:update", (data: { messageId: string; newText: string }) => {
+      setMessages((prev) => 
+        prev.map((msg) => 
+          msg.id === data.messageId 
+            ? { ...msg, text: data.newText, isEdited: true } 
+            : msg
+        )
+      );
+    });
+
+    socket.on("chat:delete:update", (data: { messageId: string }) => {
+      setMessages((prev) => 
+        prev.map((msg) => 
+          msg.id === data.messageId 
+            ? { ...msg, isDeleted: true, text: undefined, file: undefined } 
             : msg
         )
       );
@@ -152,21 +190,82 @@ export default function RealtimeCounter() {
     if (file) processFile(file);
   };
 
+  const handleContextMenu = (e: React.MouseEvent, messageId: string) => {
+    e.preventDefault();
+    setContextMenu({
+      visible: true,
+      x: e.clientX,
+      y: e.clientY,
+      messageId
+    });
+  };
+
+  const handleTouchStart = (e: React.TouchEvent, messageId: string) => {
+    const touch = e.touches[0];
+    const x = touch.clientX;
+    const y = touch.clientY;
+    longPressTimer.current = setTimeout(() => {
+      setContextMenu({
+        visible: true,
+        x,
+        y,
+        messageId
+      });
+    }, 500);
+  };
+
+  const handleTouchEnd = () => {
+    if (longPressTimer.current) {
+      clearTimeout(longPressTimer.current);
+    }
+  };
+
+  const handleAction = (type: 'reply' | 'edit' | 'delete') => {
+    if (!contextMenu) return;
+    const msg = messages.find(m => m.id === contextMenu.messageId);
+    if (!msg || msg.isDeleted) return;
+
+    if (type === 'reply') {
+      setReplyTo(msg);
+      setEditingMsg(null);
+    } else if (type === 'edit') {
+      setEditingMsg(msg);
+      setInputMessage(msg.text || "");
+      setReplyTo(null);
+    } else if (type === 'delete') {
+      socketRef.current?.emit("chat:delete", { messageId: msg.id });
+    }
+    setContextMenu(null);
+  };
+
   const sendMessage = (e: React.FormEvent) => {
     e.preventDefault();
     if ((!inputMessage.trim() && !selectedFile) || !socketRef.current) return;
 
-    socketRef.current.emit("chat:message", {
-      text: inputMessage,
-      file: selectedFile || undefined,
-      sender: `User_${socketRef.current.id?.substring(0, 4)}`,
-    });
+    if (editingMsg) {
+      socketRef.current.emit("chat:edit", { 
+        messageId: editingMsg.id, 
+        newText: inputMessage 
+      });
+      setEditingMsg(null);
+    } else {
+      socketRef.current.emit("chat:message", {
+        text: inputMessage,
+        file: selectedFile || undefined,
+        sender: `User_${socketRef.current.id?.substring(0, 4)}`,
+        replyTo: replyTo ? {
+          id: replyTo.id,
+          text: replyTo.text,
+          sender: replyTo.sender
+        } : undefined
+      });
+    }
     
     setInputMessage("");
     setSelectedFile(null);
+    setReplyTo(null);
     if (fileInputRef.current) fileInputRef.current.value = "";
 
-    // Reset textarea height
     const textarea = (e.target as HTMLFormElement).querySelector('textarea');
     if (textarea) textarea.style.height = '48px';
   };
@@ -179,6 +278,43 @@ export default function RealtimeCounter() {
 
   return (
     <div className="min-h-screen flex flex-col bg-white">
+      {/* ── Context Menu ───────────────────────────────────────── */}
+      {contextMenu && (
+        <>
+          <div className="fixed inset-0 z-[60]" onClick={() => setContextMenu(null)} />
+          <div 
+            className="fixed z-[70] bg-white border-2 border-black shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] w-40 py-1"
+            style={{ 
+              top: contextMenu.y + 150 > (typeof window !== 'undefined' ? window.innerHeight : 0) 
+                ? contextMenu.y - 140 
+                : contextMenu.y,
+              left: contextMenu.x + 160 > (typeof window !== 'undefined' ? window.innerWidth : 0)
+                ? contextMenu.x - 160
+                : contextMenu.x
+            }}
+          >
+            <button 
+              className="w-full flex items-center gap-3 px-4 py-2.5 text-[0.8rem] font-bold uppercase hover:bg-gray-50 border-b border-gray-100 cursor-pointer" 
+              onClick={() => handleAction('reply')}
+            >
+              <Send size={14} className="rotate-[270deg]" /> Reply
+            </button>
+            <button 
+              className="w-full flex items-center gap-3 px-4 py-2.5 text-[0.8rem] font-bold uppercase hover:bg-gray-50 border-b border-gray-100 cursor-pointer" 
+              onClick={() => handleAction('edit')}
+            >
+              <FileText size={14} /> Edit
+            </button>
+            <button 
+              className="w-full flex items-center gap-3 px-4 py-2.5 text-[0.8rem] font-bold uppercase hover:bg-gray-50 text-red-600 cursor-pointer" 
+              onClick={() => handleAction('delete')}
+            >
+              <RotateCcw size={14} /> Delete
+            </button>
+          </div>
+        </>
+      )}
+
       {/* ── Header ─────────────────────────────────────────── */}
       <header className="sticky top-0 z-50 bg-white border-b-2 border-black">
         <div className="max-w-[960px] mx-auto px-6 h-[60px] flex items-center justify-between">
@@ -280,6 +416,9 @@ export default function RealtimeCounter() {
                   <div 
                     key={msg.id} 
                     className={`flex flex-col gap-1 max-w-[80%] ${isOwn ? 'self-end' : 'self-start'} ${isSameSender ? '-mt-4' : 'mt-0'}`}
+                    onContextMenu={(e) => handleContextMenu(e, msg.id)}
+                    onTouchStart={(e) => handleTouchStart(e, msg.id)}
+                    onTouchEnd={handleTouchEnd}
                   >
                     {!isSameSender && (
                       <span className="text-[0.55rem] font-mono font-bold uppercase tracking-widest text-gray-400 px-1 mt-1">
@@ -291,31 +430,46 @@ export default function RealtimeCounter() {
                         isOwn 
                           ? 'bg-black text-white border-black' 
                           : 'bg-white text-black border-black'
-                      }`}
+                      } ${msg.isDeleted ? 'opacity-50 italic' : ''}`}
                     >
-                      {msg.file && (
-                        <div className="mb-2">
-                          {msg.file.type.startsWith("image/") ? (
-                            <div className="relative group">
-                              <img src={msg.file.data} alt="Upload" className="max-w-full border border-white/20" />
-                              <div className="absolute top-2 left-2 bg-black/50 p-1">
-                                <ImageIcon size={14} className="text-white" />
-                              </div>
-                            </div>
-                          ) : (
-                            <a href={msg.file.data} download={msg.file.name} className="flex items-center gap-2 underline text-[0.8rem] bg-white/10 p-2 border border-current">
-                              <FileText size={16} />
-                              <span className="truncate">{msg.file.name}</span>
-                            </a>
-                          )}
+                      {msg.replyTo && !msg.isDeleted && (
+                        <div className={`mb-2 p-2 border-l-4 border-black bg-gray-100 text-[0.75rem] overflow-hidden`}>
+                          <span className="block font-bold mb-0.5 text-[0.6rem] uppercase">{msg.replyTo.sender}</span>
+                          <p className="truncate opacity-70">{msg.replyTo.text || 'File'}</p>
                         </div>
                       )}
-                      <p>{msg.text}</p>
+                      {msg.isDeleted ? (
+                        <p className="flex items-center gap-2"><RotateCcw size={14} /> This message was deleted</p>
+                      ) : (
+                        <>
+                          {msg.file && (
+                            <div className="mb-2">
+                              {msg.file.type.startsWith("image/") ? (
+                                <div className="relative group">
+                                  <img src={msg.file.data} alt="Upload" className="max-w-full border border-white/20" />
+                                  <div className="absolute top-2 left-2 bg-black/50 p-1">
+                                    <ImageIcon size={14} className="text-white" />
+                                  </div>
+                                </div>
+                              ) : (
+                                <a href={msg.file.data} download={msg.file.name} className="flex items-center gap-2 underline text-[0.8rem] bg-white/10 p-2 border border-current">
+                                  <FileText size={16} />
+                                  <span className="truncate">{msg.file.name}</span>
+                                </a>
+                              )}
+                            </div>
+                          )}
+                          <p>{msg.text}</p>
+                        </>
+                      )}
                       <div className="flex justify-between items-center mt-2 gap-4">
-                        <span className="text-[0.6rem] opacity-70 font-mono">
-                          {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                        </span>
-                        {isOwn && (
+                        <div className="flex items-center gap-2">
+                          <span className="text-[0.6rem] opacity-70 font-mono">
+                            {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                          </span>
+                          {msg.isEdited && !msg.isDeleted && <span className="text-[0.6rem] opacity-50 uppercase font-bold">Edited</span>}
+                        </div>
+                        {isOwn && !msg.isDeleted && (
                           <span className="text-[0.6rem] font-bold uppercase tracking-tighter opacity-80">
                             Seen by {msg.seenCount}
                           </span>
@@ -327,6 +481,31 @@ export default function RealtimeCounter() {
               })
             )}
           </div>
+          {replyTo && (
+            <div className="px-4 py-3 border-t-2 border-black bg-gray-100 flex items-center justify-between">
+              <div className="flex flex-col overflow-hidden">
+                <span className="text-[0.6rem] font-bold uppercase text-gray-500">Replying to {replyTo.sender}</span>
+                <p className="text-[0.8rem] truncate opacity-70">{replyTo.text || 'File attachment'}</p>
+              </div>
+              <button className="p-1 hover:bg-gray-200 cursor-pointer" onClick={() => setReplyTo(null)}>
+                <X size={16} />
+              </button>
+            </div>
+          )}
+          {editingMsg && (
+            <div className="px-4 py-3 border-t-2 border-black bg-amber-50 flex items-center justify-between">
+              <div className="flex flex-col overflow-hidden">
+                <span className="text-[0.6rem] font-bold uppercase text-amber-600">Editing Message</span>
+                <p className="text-[0.8rem] truncate opacity-70">{editingMsg.text}</p>
+              </div>
+              <button className="p-1 hover:bg-amber-100 cursor-pointer" onClick={() => {
+                setEditingMsg(null);
+                setInputMessage("");
+              }}>
+                <X size={16} />
+              </button>
+            </div>
+          )}
           {selectedFile && (
             <div className="px-4 py-2 border-t-2 border-black bg-gray-100 flex items-center justify-between">
               <div className="flex items-center gap-2 overflow-hidden">
@@ -365,14 +544,20 @@ export default function RealtimeCounter() {
               <Paperclip size={20} />
             </button>
             <textarea 
-              className="flex-1 px-4 py-3 border-2 border-black font-sans text-[0.9rem] bg-white text-black outline-none focus:bg-gray-50 resize-none min-h-[48px] max-h-[120px] custom-scrollbar" 
+              className="flex-1 px-4 py-3 border-2 border-black font-sans text-[0.9rem] bg-white text-black outline-none focus:bg-gray-50 resize-none min-h-[48px] max-h-[120px] overflow-hidden custom-scrollbar" 
               placeholder="Type your message..."
               value={inputMessage}
               onChange={(e) => {
-                setInputMessage(e.target.value);
+                const target = e.target;
+                setInputMessage(target.value);
+                
                 // Auto-expand logic
-                e.target.style.height = 'inherit';
-                e.target.style.height = `${Math.min(e.target.scrollHeight, 120)}px`;
+                target.style.height = '48px'; // Reset to min-height first
+                const newHeight = Math.min(target.scrollHeight, 120);
+                target.style.height = `${newHeight}px`;
+                
+                // Only show scroll if we've hit the max height
+                target.style.overflowY = target.scrollHeight > 120 ? 'auto' : 'hidden';
               }}
               onKeyDown={(e) => {
                 if (e.key === 'Enter' && !e.shiftKey) {
