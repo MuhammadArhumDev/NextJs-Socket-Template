@@ -1,0 +1,6 @@
+{
+  "watch": ["server.ts", "src/jobs/"],
+  "ext": "ts,json",
+  "ignore": ["app/", "pages/", ".next/", "node_modules/"],
+  "exec": "tsx server.ts"
+}
